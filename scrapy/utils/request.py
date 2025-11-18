@@ -5,6 +5,7 @@ scrapy.http.Request objects
 
 import hashlib
 import json
+import shlex
 import warnings
 from typing import (
     TYPE_CHECKING,
@@ -25,13 +26,14 @@ from weakref import WeakKeyDictionary
 from w3lib.http import basic_auth_header
 from w3lib.url import canonicalize_url
 
-from scrapy import Request, Spider
+from scrapy import Request
 from scrapy.exceptions import ScrapyDeprecationWarning
 from scrapy.utils.httpobj import urlparse_cached
 from scrapy.utils.misc import load_object
 from scrapy.utils.python import to_bytes, to_unicode
 
 if TYPE_CHECKING:
+    from scrapy import Spider
     from scrapy.crawler import Crawler
 
 
@@ -192,7 +194,7 @@ def referer_str(request: Request) -> Optional[str]:
     return to_unicode(referrer, errors="replace")
 
 
-def request_from_dict(d: dict, *, spider: Optional[Spider] = None) -> Request:
+def request_from_dict(d: dict, *, spider: Optional["Spider"] = None) -> Request:
     """Create a :class:`~scrapy.Request` object from a dict.
 
     If a spider is given, it will try to resolve the callbacks looking at the
@@ -216,6 +218,42 @@ def _get_method(obj: Any, name: Any) -> Any:
         raise ValueError(f"Method {name!r} not found in: {obj}")
 
 
+def _to_unicode_or_str(value: Any, *, encoding: str) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return to_unicode(value, encoding=encoding, errors="replace")
+    return str(value)
+
+
+def _iter_cookie_pairs(cookies: Union[dict, List[dict]], *, encoding: str) -> List[str]:
+    pairs: List[str] = []
+
+    def _append(name: Any, value: Any) -> None:
+        if name is None or value is None:
+            return
+        pairs.append(
+            f"{_to_unicode_or_str(name, encoding=encoding)}="
+            f"{_to_unicode_or_str(value, encoding=encoding)}"
+        )
+
+    if isinstance(cookies, dict):
+        for name, value in cookies.items():
+            _append(name, value)
+        return pairs
+
+    for cookie in cookies:
+        if not isinstance(cookie, dict):
+            continue
+        if "name" in cookie and "value" in cookie:
+            _append(cookie.get("name"), cookie.get("value"))
+            continue
+        if len(cookie) == 1:
+            name, value = next(iter(cookie.items()))
+            _append(name, value)
+    return pairs
+
+
 def request_to_curl(request: Request) -> str:
     """
     Converts a :class:`~scrapy.Request` object to a curl command.
@@ -223,25 +261,29 @@ def request_to_curl(request: Request) -> str:
     :param :class:`~scrapy.Request`: Request object to be converted
     :return: string containing the curl command
     """
-    method = request.method
 
-    data = f"--data-raw '{request.body.decode('utf-8')}'" if request.body else ""
+    parts: List[Tuple[str, bool]] = [
+        ("curl", True),
+        ("-X", True),
+        (request.method, True),
+        (request.url, True),
+    ]
 
-    headers = " ".join(
-        f"-H '{k.decode()}: {v[0].decode()}'" for k, v in request.headers.items()
-    )
+    if request.body:
+        body = _to_unicode_or_str(request.body, encoding=request.encoding)
+        parts.extend([("--data-raw", True), (body, True)])
 
-    url = request.url
-    cookies = ""
+    headers_encoding = getattr(request.headers, "encoding", request.encoding)
+    for header_name, header_values in request.headers.items():
+        header_name_str = _to_unicode_or_str(header_name, encoding=headers_encoding)
+        for header_value in header_values:
+            header_value_str = _to_unicode_or_str(header_value, encoding=headers_encoding)
+            parts.extend([("-H", True), (f"{header_name_str}: {header_value_str}", True)])
+
     if request.cookies:
-        if isinstance(request.cookies, dict):
-            cookie = "; ".join(f"{k}={v}" for k, v in request.cookies.items())
-            cookies = f"--cookie '{cookie}'"
-        elif isinstance(request.cookies, list):
-            cookie = "; ".join(
-                f"{list(c.keys())[0]}={list(c.values())[0]}" for c in request.cookies
-            )
-            cookies = f"--cookie '{cookie}'"
+        cookie_pairs = _iter_cookie_pairs(request.cookies, encoding=request.encoding)
+        if cookie_pairs:
+            cookie_value = "; ".join(cookie_pairs)
+            parts.extend([("--cookie", True), (f"'{cookie_value}'", False)])
 
-    curl_cmd = f"curl -X {method} {url} {data} {headers} {cookies}".strip()
-    return " ".join(curl_cmd.split())
+    return " ".join(shlex.quote(part) if quote else part for part, quote in parts)

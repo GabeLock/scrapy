@@ -5,14 +5,9 @@ Scrapy - a web crawling and web scraping framework written for Python
 import pkgutil
 import sys
 import warnings
+from importlib import import_module
 
 from twisted import version as _txv
-
-# Declare top-level shortcuts
-from scrapy.http import FormRequest, Request
-from scrapy.item import Field, Item
-from scrapy.selector import Selector
-from scrapy.spiders import Spider
 
 __all__ = [
     "__version__",
@@ -25,6 +20,15 @@ __all__ = [
     "Item",
     "Field",
 ]
+
+_lazy_imports = {
+    "Spider": "scrapy.spiders",
+    "Request": "scrapy.http",
+    "FormRequest": "scrapy.http",
+    "Selector": "scrapy.selector",
+    "Item": "scrapy.item",
+    "Field": "scrapy.item",
+}
 
 
 # Scrapy and Twisted versions
@@ -41,6 +45,15 @@ if sys.version_info < (3, 8):
 
 # Ignore noisy twisted deprecation warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="twisted")
+
+
+def __getattr__(name: str):
+    if name not in _lazy_imports:
+        raise AttributeError(f"module 'scrapy' has no attribute {name!r}")
+    module = import_module(_lazy_imports[name])
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
 
 
 del pkgutil

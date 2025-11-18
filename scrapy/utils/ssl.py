@@ -1,18 +1,29 @@
 from typing import Any, Optional
 
-import OpenSSL._util as pyOpenSSLutil
-import OpenSSL.SSL
-import OpenSSL.version
-from OpenSSL.crypto import X509Name
+try:
+    import OpenSSL.SSL
+    import OpenSSL._util as pyOpenSSLutil
+    import OpenSSL.version
+    from OpenSSL.crypto import X509Name
+except ImportError:  # pragma: no cover - optional dependency
+    OpenSSL = None
+    pyOpenSSLutil = None
+    X509Name = Any  # type: ignore[misc,assignment]
+else:
+    OpenSSL = OpenSSL
 
 from scrapy.utils.python import to_unicode
 
 
 def ffi_buf_to_string(buf: Any) -> str:
+    if pyOpenSSLutil is None:
+        raise RuntimeError("pyOpenSSL is not available")
     return to_unicode(pyOpenSSLutil.ffi.string(buf))
 
 
 def x509name_to_string(x509name: X509Name) -> str:
+    if pyOpenSSLutil is None:
+        raise RuntimeError("pyOpenSSL is not available")
     # from OpenSSL.crypto.X509Name.__repr__
     result_buffer: Any = pyOpenSSLutil.ffi.new("char[]", 512)
     pyOpenSSLutil.lib.X509_NAME_oneline(
@@ -23,6 +34,8 @@ def x509name_to_string(x509name: X509Name) -> str:
 
 
 def get_temp_key_info(ssl_object: Any) -> Optional[str]:
+    if pyOpenSSLutil is None:
+        return None
     # adapted from OpenSSL apps/s_cb.c::ssl_print_tmp_key()
     if not hasattr(pyOpenSSLutil.lib, "SSL_get_server_tmp_key"):
         # removed in cryptography 40.0.0
@@ -58,6 +71,8 @@ def get_temp_key_info(ssl_object: Any) -> Optional[str]:
 
 
 def get_openssl_version() -> str:
+    if OpenSSL is None:
+        return "unavailable"
     system_openssl_bytes = OpenSSL.SSL.SSLeay_version(OpenSSL.SSL.SSLEAY_VERSION)
     system_openssl = system_openssl_bytes.decode("ascii", errors="replace")
     return f"{OpenSSL.version.__version__} ({system_openssl})"

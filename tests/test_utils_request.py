@@ -449,6 +449,17 @@ class RequestToCurlTest(unittest.TestCase):
         )
         self._test_request(request_object, expected_curl_command)
 
+    def test_multiple_header_values(self):
+        request_object = Request(
+            "https://www.example.com",
+            headers={"Accept": ["application/json", "text/plain"]},
+        )
+        expected_curl_command = (
+            "curl -X GET https://www.example.com"
+            " -H 'Accept: application/json' -H 'Accept: text/plain'"
+        )
+        self._test_request(request_object, expected_curl_command)
+
     def test_cookies_dict(self):
         request_object = Request(
             "https://www.httpbin.org/post",
@@ -473,6 +484,29 @@ class RequestToCurlTest(unittest.TestCase):
             "curl -X POST https://www.httpbin.org/post"
             " --data-raw '{\"foo\": \"bar\"}' --cookie 'foo=bar'"
         )
+        self._test_request(request_object, expected_curl_command)
+
+    def test_cookie_dicts_with_name_value(self):
+        request_object = Request(
+            "https://www.example.com",
+            cookies=[
+                {"name": "foo", "value": "bar", "domain": "example.com"},
+                {"name": "baz", "value": "qux"},
+            ],
+        )
+        expected_curl_command = (
+            "curl -X GET https://www.example.com --cookie 'foo=bar; baz=qux'"
+        )
+        self._test_request(request_object, expected_curl_command)
+
+    def test_body_uses_request_encoding(self):
+        request_object = Request(
+            "https://www.example.com",
+            method="POST",
+            body="\xff".encode("latin-1"),
+            encoding="latin-1",
+        )
+        expected_curl_command = "curl -X POST https://www.example.com --data-raw 'ÿ'"
         self._test_request(request_object, expected_curl_command)
 
 

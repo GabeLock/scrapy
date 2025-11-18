@@ -7,6 +7,7 @@ See documentation in docs/topics/spiders.rst
 from __future__ import annotations
 
 import logging
+from importlib import import_module
 from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Union, cast
 
 from twisted.internet.defer import Deferred
@@ -103,7 +104,28 @@ class Spider(object_ref):
         return f"<{type(self).__name__} {self.name!r} at 0x{id(self):0x}>"
 
 
-# Top-level imports
-from scrapy.spiders.crawl import CrawlSpider, Rule
-from scrapy.spiders.feed import CSVFeedSpider, XMLFeedSpider
-from scrapy.spiders.sitemap import SitemapSpider
+__all__ = [
+    "Spider",
+    "CrawlSpider",
+    "Rule",
+    "CSVFeedSpider",
+    "XMLFeedSpider",
+    "SitemapSpider",
+]
+
+_lazy_imports = {
+    "CrawlSpider": "scrapy.spiders.crawl",
+    "Rule": "scrapy.spiders.crawl",
+    "CSVFeedSpider": "scrapy.spiders.feed",
+    "XMLFeedSpider": "scrapy.spiders.feed",
+    "SitemapSpider": "scrapy.spiders.sitemap",
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _lazy_imports:
+        raise AttributeError(f"module 'scrapy.spiders' has no attribute {name!r}")
+    module = import_module(_lazy_imports[name])
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
