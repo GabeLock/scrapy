@@ -1,0 +1,2 @@
+class MultipleInvalid(Exception):
+    pass
